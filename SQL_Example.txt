@@ -1,0 +1,149 @@
+
+Input data available:
+
++-------------+---------------+-------------+
+| customer_id | purchase_date | amount_paid |
++-------------+---------------+-------------+
+|           1 | 2016-01-01    |        1.00 |
+|           2 | 2016-01-02    |        2.00 |
+|           4 | 2016-03-03    |        3.00 |
+|           1 | 2016-03-10    |        2.00 |
+|           4 | 2016-03-10    |        5.50 |
++-------------+---------------+-------------+
+
+The query should produce:
+
++-------+-------------+-------------+
+| month | customer_id | amount_paid |
++-------+-------------+-------------+
+|     1 | 1           | $1.00       |
+|     1 | 2           | $2.00       |
+|     1 | 4           | $0.00       |
+|     1 | Total       | $3.00       |
+|     2 | 1           | $0.00       |
+|     2 | 2           | $0.00       |
+|     2 | 4           | $0.00       |
+|     2 | Total       | $0.00       |
+|     3 | 1           | $2.00       |
+|     3 | 2           | $0.00       |
+|     3 | 4           | $8.50       |
+|     3 | Total       | $10.50      |
++-------+-------------+-------------+
+
+
+
+
+
+
+I used MySQL to create the expected output.
+________________________________________________________________________________________________
+SQL Query :
+
+drop table if exists test_data;
+create table test_data (
+    customer_id int,
+    purchase_date date,
+    amount_paid decimal(6,2)
+);
+
+insert into test_data (customer_id, purchase_date, amount_paid) values
+  (1,'2016-01-01', 1.00),
+  (2,'2016-01-02', 2.00),
+  (4,'2016-03-03', 3.00),
+  (1,'2016-03-10', 2.00),
+  (4,'2016-03-10', 5.50)
+;
+
+
+SELECT month, customer_Id, CONCAT('$',Amount_Paid) as amount_Paid
+FROM
+(
+SELECT month, IFNULL(id, "Total") as Customer_Id, SUM(amt) as Amount_Paid
+FROM
+(
+SELECT comb_cust_mon.month as month, comb_cust_mon.customer_id as id, COALESCE(td.amount_paid,0) as amt
+FROM
+(
+SELECT customer_id, id as month FROM
+(SELECT customer_id
+FROM test_data
+GROUP BY customer_id) AS cust
+CROSS JOIN 
+(
+SELECT 1 as id
+UNION ALL 
+SELECT 2 as id
+UNION ALL 
+SELECT 3 as id
+) mon
+) comb_cust_mon LEFT JOIN test_data td
+ON comb_cust_mon.customer_id = td.customer_id
+AND comb_cust_mon.month = MONTH(td.purchase_date)
+
+) all_data 
+GROUP BY month,id with ROLLUP 
+) agg_data
+WHERE agg_data.month != 0
+;
+
+________________________________________________________________________________________________
+Explanation: 
+
+Step-1
+First job is to create a table called test_data with the given information
+
+drop table if exists test_data;
+create table test_data (
+    customer_id int,
+    purchase_date date,
+    amount_paid decimal(6,2)
+);
+
+insert into test_data (customer_id, purchase_date, amount_paid) values
+  (1,'2016-01-01', 1.00),
+  (2,'2016-01-02', 2.00),
+  (4,'2016-03-03', 3.00),
+  (1,'2016-03-10', 2.00),
+  (4,'2016-03-10', 5.50)
+;
+
+
+Step-2
+mon - Starting with the innermost sub-query, 
+(SELECT customer_id
+FROM test_data
+GROUP BY customer_id) AS cust
+
+ cross joining it with ‘mon’ which is a virtual table with all the given months( Jan, Feb, Mar)
+
+(
+SELECT 1 as id
+UNION ALL 
+SELECT 2 as id
+UNION ALL 
+SELECT 3 as id
+) 
+
+
+
+Step-3
+comb_cust_mon - The output from step-2 gives all the possible combinations of months corresponding to customer ids 
+all_data-  When comb_cust_mon is left joined with test_data (the original table) for the conditions below.
+ON comb_cust_mon.customer_id = td.customer_id
+AND comb_cust_mon.month = MONTH(td.purchase_date)
+It gives us all the data with the corresponding amount paid using COALESCE
+
+COALESCE(td.amount_paid,0) - returns the amount paid from test_data for those above conditions, else zero.
+
+
+
+Step-4
+GROUP BY month,id with ROLLUP - returns the data with the aggregation as agg_data with the following condition
+WHERE agg_data.month != 0
+
+
+
+Step-5
+Finally to arrive at the final output I got the month, customer_id and concatenated the ‘$’ sign to the aggregated amount paid.
+
+
